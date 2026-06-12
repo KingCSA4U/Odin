@@ -13,6 +13,7 @@ const { handleCommand } = require('./commands')
 // Config
 // ─────────────────────────────────────────
 const FLASK_BASE = process.env.FLASK_BASE_URL || 'http://localhost:5000'
+const PHONE = process.env.PHONE
 
 
 // ─────────────────────────────────────────
@@ -73,7 +74,7 @@ async function connectToWhatsApp() {
     // Persist auth credentials whenever they change
     sock.ev.on('creds.update', saveCreds)
     if (!sock.authState.creds.registered) {
-        const code = await sock.requestPairingCode('2349012345678')
+        const code = await sock.requestPairingCode(PHONE)
         console.log(`Pairing code: ${code}`)
     }
 
