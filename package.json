@@ -12,8 +12,8 @@
   "type": "commonjs",
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc13",
+    "dotenv": "^17.4.2",
     "node-fetch": "^2.7.0",
     "pino": "^8.x"
-}
   }
-
+}

@@ -1,3 +1,4 @@
+require('dotenv').config()
 const {
     default: makeWASocket,
     useMultiFileAuthState,
@@ -52,23 +53,34 @@ async function checkIsAdmin(sock, chatId, senderId) {
 // ─────────────────────────────────────────
 
 async function connectToWhatsApp() {
+    console.log('🚀 Initializing Odin...')
+    
+    console.log('📂 Loading auth state...')
     const { state, saveCreds } = await useMultiFileAuthState('auth_info')
+    
+    console.log('🌐 Fetching latest WhatsApp version...')
     const { version } = await fetchLatestBaileysVersion()
+    console.log(`✅ Using version: ${version.join('.')}`)
 
+    console.log('🔌 Connecting to WhatsApp...')
     const sock = makeWASocket({
         version,
         auth: state,
         logger: pino({ level: 'silent' }),   // suppress Baileys noise
-        printQRInTerminal: true,
+        printQRInTerminal: false,
     })
 
     // Persist auth credentials whenever they change
     sock.ev.on('creds.update', saveCreds)
+    if (!sock.authState.creds.registered) {
+        const code = await sock.requestPairingCode('2349012345678')
+        console.log(`Pairing code: ${code}`)
+    }
 
     // ── Connection lifecycle ──────────────────
     sock.ev.on('connection.update', ({ connection, lastDisconnect }) => {
         if (connection === 'open') {
-            console.log('✅ BrawlBot is online!')
+            console.log('✅ Odin is online!')
             return
         }
 
@@ -102,8 +114,8 @@ async function connectToWhatsApp() {
 
         const text = getMessageText(msg)
 
-        // Commands must start with a dot
-        if (!text.startsWith('.')) return
+        // Commands must start with !
+        if (!text.startsWith('!')) return
 
         // Participant is always present in group messages
         const senderId = msg.key.participant

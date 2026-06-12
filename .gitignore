@@ -4,8 +4,8 @@ __pycache__/
 
 node_modules/
 
-auth/
+auth_info/
 
 .env
 
-.db
+.db 

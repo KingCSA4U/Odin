@@ -13,7 +13,10 @@ async function callFlask(flaskBase, method, endpoint, body = null) {
     try {
         const options = {
             method,
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'X-API-KEY': process.env.API_SECRET_KEY || 'default-secret-key'
+            },
         }
         if (body) options.body = JSON.stringify(body)
 
@@ -55,14 +58,14 @@ function getMentionedId(msg) {
 // ─────────────────────────────────────────
 
 /**
- * .register [brawlhalla_id]
+ * !register [brawlhalla_id]
  * Links the sender's WhatsApp ID to their Brawlhalla account.
  */
 async function handleRegister({ sock, msg, args, senderId, flaskBase }) {
     const brawlhallaId = args[0]
 
     if (!brawlhallaId) {
-        return reply(sock, msg, '❌ Usage: .register [brawlhalla_id]')
+        return reply(sock, msg, '❌ Usage: !register [brawlhalla_id]')
     }
 
     const data = await callFlask(flaskBase, 'POST', '/api/commands/register', {
@@ -73,13 +76,12 @@ async function handleRegister({ sock, msg, args, senderId, flaskBase }) {
     await reply(sock, msg, data.message)
 }
 
-
 /**
- * .stats
- * Fetches live ranked stats for the sender.
+ * !unregister
+ * Removes the link between the sender's WhatsApp ID and Brawlhalla account.
  */
-async function handleStats({ sock, msg, senderId, flaskBase }) {
-    const data = await callFlask(flaskBase, 'POST', '/api/commands/stats', {
+async function handleUnregister({ sock, msg, senderId, flaskBase }) {
+    const data = await callFlask(flaskBase, 'POST', '/api/commands/unregister', {
         whatsapp_id: senderId,
     })
 
@@ -88,7 +90,28 @@ async function handleStats({ sock, msg, senderId, flaskBase }) {
 
 
 /**
- * .warn @user [reason]   (admin only)
+ * !stats [@user]
+ * Fetches live ranked stats for the sender or a mentioned user.
+ */
+async function handleStats({ sock, msg, senderId, isAdmin, flaskBase }) {
+    let targetId = senderId
+    
+    // Allow checking others if mentioned
+    const mentioned = getMentionedId(msg)
+    if (mentioned) {
+        targetId = mentioned
+    }
+
+    const data = await callFlask(flaskBase, 'POST', '/api/commands/stats', {
+        whatsapp_id: targetId,
+    })
+
+    await reply(sock, msg, data.message)
+}
+
+
+/**
+ * !warn @user [reason]   (admin only)
  * Issues a warning. Kicks the user automatically on their 3rd.
  */
 async function handleWarn({ sock, msg, args, chatId, isAdmin, flaskBase }) {
@@ -99,7 +122,7 @@ async function handleWarn({ sock, msg, args, chatId, isAdmin, flaskBase }) {
     const targetId = getMentionedId(msg)
 
     if (!targetId) {
-        return reply(sock, msg, '❌ Usage: .warn @user [reason]')
+        return reply(sock, msg, '❌ Usage: !warn @user [reason]')
     }
 
     // args[0] is the raw @mention text; everything after is the reason
@@ -123,10 +146,41 @@ async function handleWarn({ sock, msg, args, chatId, isAdmin, flaskBase }) {
     }
 }
 
+/**
+ * !kick @user   (admin only)
+ * Kicks a user from the group.
+ */
+async function handleKick({ sock, msg, chatId, isAdmin, flaskBase }) {
+    if (!isAdmin) {
+        return reply(sock, msg, '🚫 Only admins can kick members.')
+    }
+
+    const targetId = getMentionedId(msg)
+
+    if (!targetId) {
+        return reply(sock, msg, '❌ Usage: !kick @user')
+    }
+
+    const data = await callFlask(flaskBase, 'POST', '/api/commands/kick', {
+        whatsapp_id: targetId,
+    })
+
+    await reply(sock, msg, data.message)
+
+    if (data.action === 'kick') {
+        try {
+            await sock.groupParticipantsUpdate(chatId, [targetId], 'remove')
+        } catch (err) {
+            console.error(`[kick] failed for ${targetId}:`, err.message)
+            await reply(sock, msg, '⚠️ Kick failed — please remove them manually.')
+        }
+    }
+}
+
 
 /**
- * .warnings          — check your own warnings
- * .warnings @user    — admins can check anyone
+ * !warnings          — check your own warnings
+ * !warnings @user    — admins can check anyone
  */
 async function handleWarnings({ sock, msg, senderId, isAdmin, flaskBase }) {
     let targetId = senderId
@@ -147,7 +201,7 @@ async function handleWarnings({ sock, msg, senderId, isAdmin, flaskBase }) {
 
 
 /**
- * .leaderboard
+ * !leaderboard
  * Shows top 10 players in the group by cached Elo rating.
  */
 async function handleLeaderboard({ sock, msg, flaskBase }) {
@@ -155,25 +209,60 @@ async function handleLeaderboard({ sock, msg, flaskBase }) {
     await reply(sock, msg, data.message)
 }
 
+/**
+ * !refresh (admin only)
+ * Triggers a full leaderboard refresh.
+ */
+async function handleRefresh({ sock, msg, isAdmin, flaskBase }) {
+    if (!isAdmin) {
+        return reply(sock, msg, '🚫 Only admins can refresh the leaderboard.')
+    }
+
+    await reply(sock, msg, '⏳ Refreshing leaderboard... this may take a moment.')
+    const data = await callFlask(flaskBase, 'POST', '/api/commands/leaderboard/refresh')
+    await reply(sock, msg, data.message)
+}
+
 
 /**
- * .help
+ * !whois [@user]
+ * Shows basic info about a user (IGN, warnings, etc.)
+ */
+async function handleWhois({ sock, msg, senderId, flaskBase }) {
+    let targetId = senderId
+    const mentioned = getMentionedId(msg)
+    if (mentioned) targetId = mentioned
+
+    const data = await callFlask(flaskBase, 'POST', '/api/commands/whois', {
+        whatsapp_id: targetId,
+    })
+
+    await reply(sock, msg, data.message)
+}
+
+
+/**
+ * !help
  * Lists available commands. Admins see the extra moderation commands.
  */
 async function handleHelp({ sock, msg, isAdmin }) {
     const lines = [
-        '🎮 *BrawlBot Commands*\n',
-        '`.register [id]`  — Link your Brawlhalla ID',
-        '`.stats`          — Your live ranked stats',
-        '`.leaderboard`    — Top 10 in this group',
-        '`.warnings`       — Check your warning count',
+        '⚔️ *Odin Bot Commands*\n',
+        '`!register [id]`  — Link your Brawlhalla ID',
+        '`!unregister`     — Unlink your Brawlhalla ID',
+        '`!stats [@user]`  — Live ranked stats',
+        '`!whois [@user]`  — Check a profile',
+        '`!leaderboard`    — Top 10 in this group',
+        '`!warnings`       — Check your warning count',
     ]
 
     if (isAdmin) {
         lines.push(
             '\n🛡️ *Admin Commands*',
-            '`.warn @user [reason]`  — Warn a member (3 = kick)',
-            '`.warnings @user`       — Check any member\'s warnings',
+            '`!warn @user [reason]`  — Warn a member (3 = kick)',
+            '`!kick @user`           — Kick a member immediately',
+            '`!warnings @user`       — Check any member\'s warnings',
+            '`!refresh`              — Update the leaderboard cache',
         )
     }
 
@@ -186,13 +275,20 @@ async function handleHelp({ sock, msg, isAdmin }) {
 // ─────────────────────────────────────────
 
 const COMMAND_MAP = {
-    '.register':    handleRegister,
-    '.stats':       handleStats,
-    '.warn':        handleWarn,
-    '.warnings':    handleWarnings,
-    '.leaderboard': handleLeaderboard,
-    '.help':        handleHelp,
+    '!register':    handleRegister,
+    '!unregister':  handleUnregister,
+    '!stats':       handleStats,
+    '!whois':       handleWhois,
+    '!warn':        handleWarn,
+    '!kick':        handleKick,
+    '!warnings':    handleWarnings,
+    '!leaderboard': handleLeaderboard,
+    '!refresh':     handleRefresh,
+    '!help':        handleHelp,
 }
+
+
+
 
 /**
  * Entry point called by index.js for every dot-command message.
