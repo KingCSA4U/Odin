@@ -68,17 +68,24 @@ async function connectToWhatsApp() {
         version,
         auth: state,
         logger: pino({ level: 'silent' }),   // suppress Baileys noise
-        printQRInTerminal: false,
+        printQRInTerminal: true,              // show QR code for pairing
     })
 
     // Persist auth credentials whenever they change
     sock.ev.on('creds.update', saveCreds)
-    if (!sock.authState.creds.registered) {
-        const code = await sock.requestPairingCode(PHONE)
-        console.log(`Pairing code: ${code}`)
-    }
+
+    // if (!sock.authState.creds.registered) {
+    //     try {
+    //         console.log('📱 Requesting pairing code...')
+    //         const code = await sock.requestPairingCode(process.env.PHONE)
+    //         console.log(`Pairing code: ${code}`)
+    //     } catch (err) {
+    //         console.error('Pairing code error:', err.message)
+    //     }
+    // }
 
     // ── Connection lifecycle ──────────────────
+    
     sock.ev.on('connection.update', ({ connection, lastDisconnect }) => {
         if (connection === 'open') {
             console.log('✅ Odin is online!')
@@ -87,17 +94,21 @@ async function connectToWhatsApp() {
 
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode
-            const loggedOut  = statusCode === DisconnectReason.loggedOut
 
-            if (loggedOut) {
-                console.log('🔴 Logged out. Delete the auth_info folder and restart.')
-            } else {
-                console.log(`⚠️  Disconnected (code ${statusCode}). Reconnecting...`)
-                connectToWhatsApp()
+            if (statusCode === DisconnectReason.loggedOut) {
+                console.log('🔴 Logged out. Delete auth_info and restart.')
+                return  // stop — do not reconnect
             }
+
+            if (statusCode === DisconnectReason.connectionClosed) {
+                console.log('🔴 Connection closed by WhatsApp. Waiting before retry...')
+                return  // stop — do not reconnect
+            }
+
+            console.log(`⚠️ Disconnected (code ${statusCode}). Reconnecting...`)
+            connectToWhatsApp()
         }
     })
-
     // ── Incoming messages ─────────────────────
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         // 'notify' = new messages pushed to us; ignore history syncs
